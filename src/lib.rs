@@ -1,9 +1,20 @@
 #![cfg_attr(not(test), no_std)]
 
+use core::{borrow::Borrow, char::MAX};
+
 use gc_headers::{Tracer, HeapResult, Pointer, GarbageCollectingHeap, HeapError};
 
 #[derive(Copy, Clone, Debug)]
 pub struct CopyingHeap<const HEAP_SIZE: usize, const MAX_BLOCKS: usize> {
+    heaps : [[u64; HEAP_SIZE]; 2],
+    num_of_used_blocks: usize, 
+    next_block: usize, 
+    copy_to: usize, 
+    copy_from: usize,
+    pointer_buffer: [Pointer; MAX_BLOCKS],
+    blocks_buffer : [usize; MAX_BLOCKS],
+    alloc_block_buffer : [bool; MAX_BLOCKS],
+    block_sizing_buffer: [usize; MAX_BLOCKS],
     // YOUR CODE HERE
 }
 
@@ -11,19 +22,108 @@ impl<const HEAP_SIZE: usize, const MAX_BLOCKS: usize> GarbageCollectingHeap for
     CopyingHeap<HEAP_SIZE, MAX_BLOCKS>
 {
     fn new() -> Self {
-        todo!("Create the heap");
+        let mut heaps = [[0 as u64; HEAP_SIZE]; 2];
+        let mut pointer_buffer = [Pointer::new(0, MAX_BLOCKS); MAX_BLOCKS];
+        let mut blocks_buffer = [0; MAX_BLOCKS];
+        let mut alloc_block_buffer = [false; MAX_BLOCKS];
+        let mut block_sizing_buffer = [0; MAX_BLOCKS];
+        Self{heaps, num_of_used_blocks: 0, next_block: 0, pointer_buffer, copy_to: 1, copy_from: 0, blocks_buffer, alloc_block_buffer, block_sizing_buffer}
     }
 
     fn load(&self, p: Pointer) -> HeapResult<u64> {
-        todo!("Load a value from the heap");
+        return HeapResult::Ok(self.heaps[self.copy_from][self.blocks_buffer[p.block_num()] + p.offset()]) ;
     }
 
     fn store(&mut self, p: Pointer, value: u64) -> HeapResult<()> {
-        todo!("Store a value in the heap");
+        if p.len() <= p.offset() {
+            return HeapResult::Err(HeapError::OffsetTooBig)
+        } else {
+            self.heaps[self.copy_from][self.blocks_buffer[p.block_num()] + p.offset()] = value;
+            p.next();
+            return HeapResult::Ok(())
+        }
     }
 
     fn malloc<T: Tracer>(&mut self, num_words: usize, tracer: &T) -> HeapResult<Pointer> {
-        todo!("Allocate a new block in the heap, collecting if needed.");
+        
+        if num_words + self.next_block > HEAP_SIZE {
+            self.heaps[self.copy_to] = [0;HEAP_SIZE];
+            self.alloc_block_buffer = [false; MAX_BLOCKS];
+            let mut tracer_buffer = [false; MAX_BLOCKS];
+            tracer.trace(&mut tracer_buffer);
+            self.num_of_used_blocks = 0;
+            let mut count = 0;
+            for (i, value) in tracer_buffer.iter().enumerate() {
+                if *value {
+                    for j in 0..self.block_sizing_buffer[i] {
+                        self.heaps[self.copy_to][count+j] = self.heaps[self.copy_from][j+self.blocks_buffer[i]];
+                    }
+                    self.blocks_buffer[i] = count;
+                    count += self.block_sizing_buffer[i];
+                    self.num_of_used_blocks += 1;
+                    self.alloc_block_buffer[i] = true;
+                    
+                }
+
+            }
+            self.next_block = count;
+            let tmp = self.copy_from;
+            self.copy_from = self.copy_to;
+            self.copy_to = tmp;
+            self.heaps[self.copy_to] = [0;HEAP_SIZE];
+
+            if self.num_of_used_blocks == MAX_BLOCKS {
+                return HeapResult::Err(HeapError::OutOfBlocks);
+            }
+            if num_words + self.next_block > HEAP_SIZE{
+                return  HeapResult::Err(HeapError::OutOfMemory);
+            }
+            else {
+                if self.num_of_used_blocks==MAX_BLOCKS{
+                    return HeapResult::Err(HeapError::OutOfBlocks);
+                }
+                let mut num = 0;
+                for i in 0..MAX_BLOCKS{
+                    if !self.alloc_block_buffer[i]{
+                        num = i;
+                        self.alloc_block_buffer[i] = true;
+                        break;
+                    }
+                }
+                let p = Pointer::new(num, num_words);
+                self.blocks_buffer[num] = self.next_block;
+                self.block_sizing_buffer[num] = num_words;
+                self.num_of_used_blocks +=1;
+                self.next_block += num_words;
+                
+                self.pointer_buffer[num] = p;
+                
+                return HeapResult::Ok(p);
+                
+            }
+
+        } else {
+            if self.num_of_used_blocks==MAX_BLOCKS{
+                return HeapResult::Err(HeapError::OutOfBlocks);
+            }
+            let mut num = 0;
+            for i in 0..MAX_BLOCKS{
+                if !self.alloc_block_buffer[i]{
+                    num = i;
+                    self.alloc_block_buffer[i] = true;
+                    break;
+                }
+            }
+            let p = Pointer::new(num, num_words);
+            self.blocks_buffer[num] = self.next_block;
+            self.block_sizing_buffer[num] = num_words;
+            self.num_of_used_blocks +=1;
+            self.next_block += num_words;
+            
+            self.pointer_buffer[num] = p;
+            
+            return HeapResult::Ok(p);
+        }
     }
 }
 
@@ -31,15 +131,15 @@ impl<const HEAP_SIZE: usize, const MAX_BLOCKS: usize>
     CopyingHeap<HEAP_SIZE, MAX_BLOCKS>
 {
     pub fn is_allocated(&self, block: usize) -> bool {
-        todo!("Return true if block is allocated, false otherwise");
+        return self.alloc_block_buffer[block]
     }   
             
     pub fn num_allocated_blocks(&self) -> usize {
-        todo!("Return the number of blocks allocated and in use");
+        return self.num_of_used_blocks
     }       
             
     pub fn size_of(&self, block: usize) -> usize {
-        todo!("Return the number of words in the given block");
+        return self.block_sizing_buffer[block]
     }       
 
 }
