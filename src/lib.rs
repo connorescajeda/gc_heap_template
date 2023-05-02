@@ -46,7 +46,7 @@ impl<const HEAP_SIZE: usize, const MAX_BLOCKS: usize> GarbageCollectingHeap for
 
     fn malloc<T: Tracer>(&mut self, num_words: usize, tracer: &T) -> HeapResult<Pointer> {
         
-        if num_words + self.next_block > HEAP_SIZE {
+        if num_words + self.next_block >= HEAP_SIZE {
             self.heaps[self.copy_to] = [0;HEAP_SIZE];
             self.alloc_block_buffer = [false; MAX_BLOCKS];
             let mut tracer_buffer = [false; MAX_BLOCKS];
